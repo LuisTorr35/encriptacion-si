@@ -144,7 +144,7 @@ async function ensureKeys() {
     }
   }
 
-  setStatus('Cifrado E2E activo · tu clave esta cifrada en el servidor y disponible en tus dispositivos.');
+  setStatus('Cifrado E2E activo · clave disponible en tus dispositivos 🔒');
 }
 
 /* --------------------------------------------------------------------- *
@@ -347,11 +347,13 @@ function appendMessage(m) {
 
   const bubble = document.createElement('div');
   bubble.className =
-    'max-w-[75%] rounded-2xl px-3.5 py-2 shadow-sm break-words whitespace-pre-wrap ' +
-    (m.mine ? 'bg-sky-500 text-white rounded-br-md' : 'bg-white text-gray-900 rounded-bl-md border border-gray-100');
+    'max-w-[78%] min-w-0 rounded-2xl px-4 py-2.5 break-words whitespace-pre-wrap ' +
+    (m.mine
+      ? 'bg-sky-500 text-white rounded-br-sm shadow-md'
+      : 'bg-white text-gray-900 rounded-bl-sm border border-gray-200 shadow-md');
 
   const textNode = document.createElement('div');
-  textNode.className = 'text-[15px] leading-snug';
+  textNode.className = 'text-[15px] leading-relaxed';
   if (r.integrity && r.plaintext !== null) {
     textNode.textContent = r.plaintext;                 // textContent: a prueba de XSS
   } else {
@@ -360,7 +362,7 @@ function appendMessage(m) {
   }
 
   const foot = document.createElement('div');
-  foot.className = 'mt-1 flex items-center gap-1 text-[11px] ' + (m.mine ? 'text-sky-100 justify-end' : 'text-gray-400');
+  foot.className = 'mt-1.5 flex items-center justify-end gap-1.5 text-[11px] ' + (m.mine ? 'text-sky-100' : 'text-gray-400');
   const time = document.createElement('span');
   time.textContent = formatTime(m.created_at);
   foot.appendChild(time);
