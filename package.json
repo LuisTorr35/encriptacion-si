@@ -4,7 +4,12 @@
     "type": "module",
     "scripts": {
         "build": "vite build",
-        "dev": "vite"
+        "dev": "vite",
+        "demo": "node demos/run_todo.mjs",
+        "demo:primitivas": "node demos/01_primitivas.mjs",
+        "demo:mensaje": "node demos/02_mensaje_e2e.mjs",
+        "demo:integridad": "node demos/03_integridad_caracteres.mjs",
+        "demo:multidispositivo": "node demos/04_multidispositivo.mjs"
     },
     "devDependencies": {
         "@tailwindcss/forms": "^0.5.2",

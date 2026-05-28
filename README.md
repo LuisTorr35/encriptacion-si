@@ -147,6 +147,9 @@ seguir tu historial cifrado):
 - **Round-trip en consola del navegador:** en `/chat`, abre la consola y ejecuta
   `CriptoCore.selfTest()` → debe devolver `{ ..., pass: true }`. Genera dos pares de claves,
   cifra/descifra, verifica la firma y comprueba que un mensaje alterado se rechaza.
+- **Demos de consola (Node, sin navegador):** `npm run demo` ejecuta una suite que valida las
+  primitivas contra vectores oficiales (FIPS/RFC/NIST) y demuestra el flujo E2E, la integridad,
+  los caracteres y el multi-dispositivo. Ver [`demos/README.md`](demos/README.md).
 
 ---
 
