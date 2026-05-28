@@ -269,6 +269,32 @@ function deriveSubkeys(K) {
 }
 
 /* ===================================================================== *
+ *  PBKDF2-HMAC-SHA256 (RFC 8018) — para derivar una clave a partir de la
+ *  contrasena del usuario y poder ENVOLVER la clave privada (multi-dispositivo)
+ * ===================================================================== */
+
+function pbkdf2Sha256(password, salt, iterations, dkLen) {
+  const pw = password instanceof Uint8Array ? password : utf8Encode(String(password));
+  const hLen = SHA256_LEN;
+  const blocks = Math.ceil(dkLen / hLen);
+  const dk = new Uint8Array(blocks * hLen);
+
+  for (let i = 1; i <= blocks; i++) {
+    // U1 = HMAC(pw, salt || INT_BE32(i))
+    const idx = new Uint8Array(4);
+    new DataView(idx.buffer).setUint32(0, i, false);
+    let u = hmacSha256(pw, concatBytes(salt, idx));
+    const t = u.slice();
+    for (let j = 1; j < iterations; j++) {
+      u = hmacSha256(pw, u);          // Uj = HMAC(pw, U(j-1))
+      for (let k = 0; k < hLen; k++) t[k] ^= u[k]; // T = U1 ^ U2 ^ ... ^ Uc
+    }
+    dk.set(t, (i - 1) * hLen);
+  }
+  return dk.slice(0, dkLen);
+}
+
+/* ===================================================================== *
  *  AES-256 (cifrado de bloque) + modo CTR
  * ===================================================================== */
 
@@ -785,6 +811,76 @@ function decryptMessage(envelope, privKey, isSender, pubSenderForVerify = null) 
 }
 
 /* ===================================================================== *
+ *  Envoltura de la clave privada con la contrasena (multi-dispositivo)
+ *
+ *  Permite guardar la clave privada CIFRADA en el servidor para que cualquier
+ *  dispositivo pueda recuperarla y abrirla con la contrasena del usuario.
+ *  El servidor solo ve el blob cifrado: nunca la clave privada ni la contrasena.
+ *
+ *    masterKey      <- PBKDF2-HMAC-SHA256(password, salt, iterations, 64 bytes)
+ *    k_enc, k_mac   <- split(masterKey)
+ *    blob.ciphertext<- AES-256-CTR(k_enc, JSON(clave_privada))
+ *    blob.mac       <- HMAC-SHA256(k_mac, salt||iter||nonce||ciphertext)
+ * ===================================================================== */
+
+const PBKDF2_ITERATIONS = 150000;   // coste de derivacion (anti fuerza bruta)
+
+function _wrapAad(salt, iterations, nonce, ciphertext) {
+  const it = new Uint8Array(4);
+  new DataView(it.buffer).setUint32(0, iterations, false);
+  return concatBytes(salt, it, nonce, ciphertext);
+}
+
+/**
+ * Envuelve (cifra) el JSON de la clave privada con la contrasena.
+ * @returns {object} blob serializable (campos en Base64) listo para el servidor.
+ */
+function wrapPrivateKey(privateKeyJson, password, iterations = PBKDF2_ITERATIONS) {
+  const salt = randomBytes(16);
+  const nonce = randomBytes(16);
+  const master = pbkdf2Sha256(password, salt, iterations, 64);
+  const kEnc = master.slice(0, 32);
+  const kMac = master.slice(32, 64);
+
+  const plaintext = utf8Encode(privateKeyJson);
+  const ciphertext = aes256ctr(kEnc, nonce, plaintext);
+  const mac = hmacSha256(kMac, _wrapAad(salt, iterations, nonce, ciphertext));
+
+  return {
+    v: 1,
+    kdf: 'PBKDF2-HMAC-SHA256',
+    iterations,
+    salt: bytesToBase64(salt),
+    nonce: bytesToBase64(nonce),
+    ciphertext: bytesToBase64(ciphertext),
+    mac: bytesToBase64(mac),
+  };
+}
+
+/**
+ * Abre (descifra) el blob con la contrasena. Lanza si la contrasena es incorrecta
+ * (el HMAC no coincide) o el blob esta corrupto.
+ * @returns {string} JSON de la clave privada.
+ */
+function unwrapPrivateKey(blob, password) {
+  const salt = base64ToBytes(blob.salt);
+  const nonce = base64ToBytes(blob.nonce);
+  const ciphertext = base64ToBytes(blob.ciphertext);
+  const macStored = base64ToBytes(blob.mac);
+  const iterations = blob.iterations || PBKDF2_ITERATIONS;
+
+  const master = pbkdf2Sha256(password, salt, iterations, 64);
+  const kEnc = master.slice(0, 32);
+  const kMac = master.slice(32, 64);
+
+  const macCalc = hmacSha256(kMac, _wrapAad(salt, iterations, nonce, ciphertext));
+  if (!bytesEqual(macCalc, macStored)) {
+    throw new Error('Contrasena incorrecta o clave corrupta.');
+  }
+  return utf8Decode(aes256ctr(kEnc, nonce, ciphertext));
+}
+
+/* ===================================================================== *
  *  Auto-prueba (round-trip) — util para consola / Node
  * ===================================================================== */
 
@@ -825,7 +921,9 @@ const CriptoCore = {
   // bytes / codificacion
   utf8Encode, utf8Decode, bytesToBase64, base64ToBytes, randomBytes, concatBytes, bytesEqual,
   // hash / mac / kdf
-  sha256, hmacSha256, hkdf, deriveSubkeys, mgf1,
+  sha256, hmacSha256, hkdf, deriveSubkeys, mgf1, pbkdf2Sha256,
+  // envoltura de clave privada (multi-dispositivo)
+  wrapPrivateKey, unwrapPrivateKey,
   // simetrico
   aes256ctr,
   // rsa
@@ -848,5 +946,6 @@ export {
   generateRsaKeyPair, rsaOaepEncrypt, rsaOaepDecrypt, rsaPssSign, rsaPssVerify,
   exportPublicKey, importPublicKey, exportPrivateKey, importPrivateKey,
   encryptMessage, decryptMessage, selfTest,
+  pbkdf2Sha256, wrapPrivateKey, unwrapPrivateKey,
   bytesToBase64, base64ToBytes, utf8Encode, utf8Decode,
 };

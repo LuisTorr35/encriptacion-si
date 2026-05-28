@@ -26,5 +26,17 @@
                 {{ $slot }}
             </div>
         </div>
+
+        <script>
+            // Captura la contrasena en el navegador (login/registro) para poder
+            // envolver/recuperar la clave privada E2E entre dispositivos. NUNCA se
+            // envia al servidor: solo se usa localmente para derivar la clave (PBKDF2).
+            document.addEventListener('submit', function (e) {
+                var pw = e.target.querySelector('input[name="password"]');
+                if (pw && pw.value) {
+                    try { sessionStorage.setItem('e2e.pw', pw.value); } catch (_) {}
+                }
+            }, true);
+        </script>
     </body>
 </html>
