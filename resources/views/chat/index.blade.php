@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Chat E2E · {{ $me['name'] }}</title>
+    <title>Chat Encriptado · {{ $me['name'] }}</title>
     @vite(['resources/css/app.css', 'resources/js/chat.js'])
 </head>
 <body class="h-full bg-gray-50 font-sans antialiased">
@@ -12,8 +12,8 @@
         {{-- Barra superior --}}
         <header class="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2.5">
             <div class="flex items-center gap-2">
-                <span class="text-lg">🔐</span>
-                <span class="font-semibold text-gray-900">Chat E2E</span>
+                <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-sky-500 text-base shadow-sm shadow-sky-500/30">🔐</span>
+                <span class="font-semibold text-gray-900">Chat Encriptado</span>
                 <span id="status" class="ml-3 hidden text-xs text-emerald-600 sm:inline">conectando…</span>
             </div>
             <div class="flex items-center gap-3">
