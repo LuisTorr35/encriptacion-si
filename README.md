@@ -1,59 +1,171 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Chat E2E — Mensajería con cifrado de extremo a extremo
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Aplicación web de mensajería 1-a-1 estilo Telegram con **cifrado de extremo a extremo (E2E)**
+usando un criptosistema híbrido **KEM/DEM (RSA + AES-256 + HMAC-SHA256)** implementado
+**desde cero en JavaScript**. Las conversaciones se guardan **cifradas** en MySQL: el servidor
+nunca ve el texto plano ni las claves privadas.
 
-## About Laravel
+> Proyecto académico/demostrativo de Seguridad Informática.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 1. Cómo funciona (conocimiento cero)
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+```
+Navegador A  ──(sobre cifrado)──►  Laravel + MySQL  ──(sobre cifrado)──►  Navegador B
+  cifra/descifra aquí               guarda cifrado, sin claves              cifra/descifra aquí
+```
 
-## Learning Laravel
+- La **clave privada RSA** se genera en el navegador y vive en `localStorage`. **Nunca** sale del cliente.
+- La **clave pública RSA** sí se sube al servidor, para que otros puedan cifrarte mensajes.
+- Cada mensaje usa una **clave de sesión aleatoria `K`** que se **encapsula para ambos
+  participantes** (emisor y receptor) con RSA-OAEP, de modo que los dos puedan leer el historial
+  (patrón multi-destinatario estilo PGP).
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+### Algoritmo de cada mensaje (KEM/DEM)
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+```
+1. K               <- 32 bytes aleatorios                 (clave de sesión)
+2. k_enc, k_mac    <- HKDF-SHA256(K)                       (subclaves)
+3. C               <- AES-256-CTR(k_enc, UTF8(mensaje))
+4. T               <- HMAC-SHA256(k_mac, nonce || C)       (Encrypt-then-MAC)
+5. encK_A          <- RSA-OAEP(pub_A, K)                   (envuelta para el emisor)
+6. encK_B          <- RSA-OAEP(pub_B, K)                   (envuelta para el receptor)
+7. firma           <- RSA-PSS(priv_emisor, nonce||C||T)    (autenticidad de origen)
+```
 
-## Laravel Sponsors
+Para descifrar, el usuario desencapsula `K` con su clave privada, deriva las subclaves,
+**verifica el HMAC** (si falla, rechaza el mensaje) y descifra `C`.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Todas las primitivas están implementadas a mano en
+[`resources/js/crypto/cripto-core.js`](resources/js/crypto/cripto-core.js):
+SHA-256, HMAC-SHA256, HKDF, AES-256-CTR, RSA (BigInt, Miller-Rabin, exponenciación modular),
+RSA-OAEP, RSA-PSS, UTF-8 y Base64. La única dependencia del entorno es
+`crypto.getRandomValues` (generador aleatorio del navegador).
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## 2. Stack
 
-## Contributing
+| Capa | Tecnología |
+|---|---|
+| Backend | Laravel 11 (PHP 8.2+) |
+| Auth + UI base | Laravel Breeze (Blade + Tailwind) |
+| Base de datos | MySQL / MariaDB (XAMPP) |
+| Criptografía | Núcleo JS propio (KEM/DEM), **del lado del cliente** |
+| Tiempo real | Polling cada 2.5 s vía `fetch` |
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+## 3. Requisitos (XAMPP)
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+- **XAMPP** con **Apache** y **MySQL** en ejecución.
+- **PHP ≥ 8.2** con las extensiones `pdo_mysql`, `mbstring`, `openssl`, `fileinfo`
+  (el PHP que trae XAMPP ya las incluye).
+- **Composer**.
+- **Node.js ≥ 18** y **npm** (para compilar los assets).
+- Navegador moderno (usa `crypto.getRandomValues`, `BigInt`, `TextEncoder`).
 
-## Security Vulnerabilities
+---
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## 4. Ejecución
 
-## License
+```bash
+# 1. Iniciar Apache y MySQL desde el panel de XAMPP.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+# 2. Instalar dependencias
+composer install
+npm install
+
+# 3. Configurar entorno (si .env no existe)
+cp .env.example .env
+php artisan key:generate
+#   .env ya viene apuntando a:  DB_DATABASE=chat_e2e  DB_USERNAME=root  DB_PASSWORD=
+
+# 4. Crear la base de datos y poblarla con los usuarios de prueba
+#    (crea la BD 'chat_e2e' en phpMyAdmin, o deja que migrate la use)
+php artisan migrate:fresh --seed
+
+# 5. Compilar assets de frontend
+npm run build        # (o `npm run dev` durante el desarrollo)
+
+# 6. Levantar el servidor
+php artisan serve    # http://127.0.0.1:8000
+```
+
+> **Nota (Windows / XAMPP):** si tu `php` del PATH no es el de XAMPP y le faltan extensiones,
+> usa el de XAMPP explícitamente, p. ej.:
+> `C:\xampp\php\php.exe artisan serve`
+
+---
+
+## 5. Probar el chat E2E entre dos usuarios
+
+Usuarios de prueba precargados por el seeder (contraseña `password` en ambos):
+
+| Nombre | Email |
+|---|---|
+| Ana | `ana@test.com` |
+| Beto | `beto@test.com` |
+
+Como la **clave privada vive en `localStorage`**, cada usuario debe usar un
+**navegador o perfil distinto**:
+
+1. Abre `http://127.0.0.1:8000` en una ventana normal e inicia sesión como **Ana**.
+2. Abre otra ventana **de incógnito** (o un navegador distinto) e inicia sesión como **Beto**.
+3. La primera vez que cada uno entra, el navegador genera su par de claves RSA-2048
+   (un par de segundos) y sube la pública. Cada usuario verá al otro en la lista de **Contactos**.
+4. Haz clic en el contacto y empieza a chatear. Los mensajes aparecen en el otro lado en ~2.5 s.
+
+---
+
+## 6. Verificaciones de seguridad
+
+- **Conocimiento cero:** abre la tabla `messages` en phpMyAdmin → solo verás Base64 cifrado,
+  ningún texto legible.
+- **Integridad:** altera a mano un `ciphertext` en la BD → el receptor mostrará el mensaje como
+  no verificado (el HMAC no coincide).
+- **Caracteres y longitud:** envía emojis, chino, árabe, acentos y símbolos `<>&"'` y textos muy
+  largos → deben llegar idénticos.
+- **Round-trip en consola del navegador:** en `/chat`, abre la consola y ejecuta
+  `CriptoCore.selfTest()` → debe devolver `{ ..., pass: true }`. Genera dos pares de claves,
+  cifra/descifra, verifica la firma y comprueba que un mensaje alterado se rechaza.
+
+---
+
+## 7. Estructura clave
+
+```
+app/Http/Controllers/Api/   KeyController, UserController, ConversationController, MessageController
+app/Http/Controllers/       ChatController
+app/Models/                 User, Conversation, Message
+database/migrations/        public_key, conversations, conversation_user, messages
+database/seeders/           TestUsersSeeder (Ana y Beto)
+resources/js/crypto/        cripto-core.js   (núcleo KEM/DEM, sin librerías de cifrado)
+resources/js/               chat.js          (claves, cifrar/descifrar, polling, render)
+resources/views/chat/       index.blade.php  (UI estilo Telegram)
+routes/web.php              rutas web + API (auth de sesión Breeze, CSRF)
+```
+
+### Endpoints (todos bajo sesión autenticada)
+
+| Método | Ruta | Función |
+|---|---|---|
+| POST | `/api/keys` | Subir la clave pública del usuario |
+| GET | `/api/users` | Listar otros usuarios |
+| GET | `/api/users/{id}/key` | Clave pública de un usuario |
+| POST | `/api/conversations` | Crear/obtener conversación 1-a-1 |
+| GET | `/api/conversations` | Mis conversaciones |
+| GET | `/api/conversations/{id}/messages?after={id}` | Mensajes (polling) |
+| POST | `/api/conversations/{id}/messages` | Enviar sobre cifrado |
+
+El servidor valida la pertenencia a la conversación, pero **jamás descifra** el contenido.
+
+---
+
+## 8. Notas de alcance
+
+Implementación con fines **educativos**. En producción deberían usarse bibliotecas auditadas
+(Web Crypto API), relleno OAEP/firmas PSS verificados y claves RSA ≥ 3072 bits. La clave privada
+en `localStorage` es aceptable para la demo; una mejora futura es envolverla con una clave derivada
+de la contraseña (PBKDF2) para portabilidad entre dispositivos sin exponerla al servidor.
