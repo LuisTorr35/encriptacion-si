@@ -16,7 +16,11 @@ Navegador A  ──(sobre cifrado)──►  Laravel + MySQL  ──(sobre cifra
   cifra/descifra aquí               guarda cifrado, sin claves              cifra/descifra aquí
 ```
 
-- La **clave privada RSA** se genera en el navegador y vive en `localStorage`. **Nunca** sale del cliente.
+- La **clave privada RSA** se genera en el navegador y vive en `localStorage`. **Nunca** sale del cliente en claro.
+- Para **multi-dispositivo**, la clave privada también se guarda en el servidor **cifrada** con una
+  clave derivada de tu contraseña (PBKDF2-HMAC-SHA256 → AES-256-CTR + HMAC). El servidor solo ve el
+  blob cifrado: jamás la clave en claro ni la contraseña. Al iniciar sesión en otro dispositivo, la
+  clave se **recupera y descifra localmente** con tu contraseña.
 - La **clave pública RSA** sí se sube al servidor, para que otros puedan cifrarte mensajes.
 - Cada mensaje usa una **clave de sesión aleatoria `K`** que se **encapsula para ambos
   participantes** (emisor y receptor) con RSA-OAEP, de modo que los dos puedan leer el historial
@@ -108,14 +112,27 @@ Usuarios de prueba precargados por el seeder (contraseña `password` en ambos):
 | Ana | `ana@test.com` |
 | Beto | `beto@test.com` |
 
-Como la **clave privada vive en `localStorage`**, cada usuario debe usar un
-**navegador o perfil distinto**:
+Para chatear necesitas **dos sesiones distintas** (Ana y Beto a la vez), por lo que usa un
+**navegador o perfil distinto** para cada uno:
 
 1. Abre `http://127.0.0.1:8000` en una ventana normal e inicia sesión como **Ana**.
 2. Abre otra ventana **de incógnito** (o un navegador distinto) e inicia sesión como **Beto**.
 3. La primera vez que cada uno entra, el navegador genera su par de claves RSA-2048
-   (un par de segundos) y sube la pública. Cada usuario verá al otro en la lista de **Contactos**.
+   (un par de segundos), sube la pública y guarda la privada **cifrada** en el servidor.
+   Cada usuario verá al otro en la lista de **Contactos**.
 4. Haz clic en el contacto y empieza a chatear. Los mensajes aparecen en el otro lado en ~2.5 s.
+
+### Multi-dispositivo
+
+Como la clave privada se guarda **cifrada con tu contraseña** en el servidor, puedes iniciar sesión
+con el **mismo usuario en otro dispositivo o navegador** y recuperar tu clave (y por tanto leer y
+seguir tu historial cifrado):
+
+1. Inicia sesión con el mismo usuario en el nuevo dispositivo.
+2. El navegador descarga el blob cifrado, lo descifra **localmente** con tu contraseña y restaura tu
+   clave privada en ese `localStorage`. El servidor nunca recibe la clave ni la contraseña.
+3. Si el navegador no recuerda la contraseña (p. ej. tras cerrar sesión), te la pedirá una vez para
+   recuperar la clave.
 
 ---
 
@@ -166,6 +183,10 @@ El servidor valida la pertenencia a la conversación, pero **jamás descifra** e
 ## 8. Notas de alcance
 
 Implementación con fines **educativos**. En producción deberían usarse bibliotecas auditadas
-(Web Crypto API), relleno OAEP/firmas PSS verificados y claves RSA ≥ 3072 bits. La clave privada
-en `localStorage` es aceptable para la demo; una mejora futura es envolverla con una clave derivada
-de la contraseña (PBKDF2) para portabilidad entre dispositivos sin exponerla al servidor.
+(Web Crypto API), relleno OAEP/firmas PSS verificados y claves RSA ≥ 3072 bits.
+
+La portabilidad **multi-dispositivo** ya está implementada: la clave privada se envuelve con una
+clave derivada de la contraseña (PBKDF2-HMAC-SHA256, 150 000 iteraciones) y se guarda cifrada en el
+servidor, sin exponerla en claro. La contraseña se captura solo en el navegador (`sessionStorage`)
+para derivar la clave; nunca se envía al servidor. Limitación conocida: si el usuario cambia su
+contraseña, debe regenerarse el blob cifrado (no se re-envuelve automáticamente).

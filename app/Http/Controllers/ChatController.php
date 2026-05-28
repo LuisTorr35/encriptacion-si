@@ -19,6 +19,9 @@ class ChatController extends Controller
                 'email' => $user->email,
                 'has_key' => (bool) $user->public_key,
                 'public_key' => $user->public_key,
+                // Blob cifrado de la propia clave privada (para recuperarla en este
+                // dispositivo). Es del propio usuario y esta cifrado con su contrasena.
+                'wrapped_private_key' => $user->wrapped_private_key,
             ],
         ]);
     }
