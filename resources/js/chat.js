@@ -17,6 +17,7 @@ window.CriptoCore = CriptoCore;
 const CFG = window.__CHAT__;
 const PRIV_LS = `e2e.priv.${CFG.me.id}`;
 const PUB_LS = `e2e.pub.${CFG.me.id}`;
+const PW_SS = 'e2e.pw';   // contrasena capturada en el login (solo en este navegador)
 const POLL_MS = 2500;
 
 const el = (sel) => document.querySelector(sel);
@@ -65,17 +66,61 @@ async function api(method, url, body) {
  *  Gestion de claves
  * --------------------------------------------------------------------- */
 
+// Contrasena capturada en el formulario de login/registro (sessionStorage).
+function storedPassword() {
+  try { return sessionStorage.getItem(PW_SS); } catch (_) { return null; }
+}
+
+// Sube la clave publica y el blob cifrado de la privada (derivado de la contrasena).
+async function uploadKeys(pubJson, privJson, password) {
+  const wrapped = CriptoCore.wrapPrivateKey(privJson, password);
+  const wrappedJson = JSON.stringify(wrapped);
+  await api('POST', '/api/keys', { public_key: pubJson, wrapped_private_key: wrappedJson });
+  CFG.me.public_key = pubJson;
+  CFG.me.wrapped_private_key = wrappedJson;
+}
+
+// Descifra el blob de la clave privada con la contrasena; reintenta si es incorrecta.
+function recoverPrivateKey(blob) {
+  let pw = storedPassword();
+  for (;;) {
+    if (!pw) {
+      pw = window.prompt('Escribe tu contrasena para recuperar tu clave de cifrado en este dispositivo:');
+      if (!pw) throw new Error('Recuperacion de clave cancelada.');
+      try { sessionStorage.setItem(PW_SS, pw); } catch (_) { /* noop */ }
+    }
+    try {
+      return CriptoCore.unwrapPrivateKey(blob, pw);
+    } catch (_) {
+      try { sessionStorage.removeItem(PW_SS); } catch (_) { /* noop */ }
+      pw = null;
+      window.alert('Contrasena incorrecta. Intentalo de nuevo.');
+    }
+  }
+}
+
 async function ensureKeys() {
   let privJson = localStorage.getItem(PRIV_LS);
   let pubJson = localStorage.getItem(PUB_LS);
+  const serverWrapped = CFG.me.wrapped_private_key
+    ? JSON.parse(CFG.me.wrapped_private_key)
+    : null;
 
   if (!privJson || !pubJson) {
-    setStatus('Generando tu par de claves RSA-2048 (solo la primera vez)…', true);
-    // ceder el hilo para pintar el estado antes del calculo pesado
-    await new Promise((r) => setTimeout(r, 30));
-    const kp = CriptoCore.generateRsaKeyPair(2048);
-    privJson = CriptoCore.exportPrivateKey(kp.privateKey);
-    pubJson = CriptoCore.exportPublicKey(kp.publicKey);
+    if (serverWrapped && CFG.me.public_key) {
+      // Otro dispositivo ya genero la clave: recuperarla con la contrasena de login.
+      setStatus('Recuperando tu clave de cifrado en este dispositivo…', true);
+      await new Promise((r) => setTimeout(r, 30));
+      privJson = recoverPrivateKey(serverWrapped);
+      pubJson = CFG.me.public_key;
+    } else {
+      // Primera vez en cualquier dispositivo: generar el par RSA.
+      setStatus('Generando tu par de claves RSA-2048 (solo la primera vez)…', true);
+      await new Promise((r) => setTimeout(r, 30));
+      const kp = CriptoCore.generateRsaKeyPair(2048);
+      privJson = CriptoCore.exportPrivateKey(kp.privateKey);
+      pubJson = CriptoCore.exportPublicKey(kp.publicKey);
+    }
     localStorage.setItem(PRIV_LS, privJson);
     localStorage.setItem(PUB_LS, pubJson);
   }
@@ -84,12 +129,22 @@ async function ensureKeys() {
   state.myPub = CriptoCore.importPublicKey(pubJson);
   state.myPubJson = pubJson;
 
-  // Sincronizar la publica con el servidor si falta o no coincide.
-  if (CFG.me.public_key !== pubJson) {
-    await api('POST', '/api/keys', { public_key: pubJson });
-    CFG.me.public_key = pubJson;
+  // Sincronizar con el servidor lo que falte: la clave publica y/o el blob cifrado
+  // de la privada (para que otros dispositivos puedan recuperarla).
+  const needsPub = CFG.me.public_key !== pubJson;
+  const needsWrapped = !CFG.me.wrapped_private_key;
+  if (needsPub || needsWrapped) {
+    const pw = storedPassword();
+    if (pw) {
+      await uploadKeys(pubJson, privJson, pw);
+    } else if (needsPub) {
+      // Sin contrasena disponible: al menos publicar la clave publica.
+      await api('POST', '/api/keys', { public_key: pubJson });
+      CFG.me.public_key = pubJson;
+    }
   }
-  setStatus('Cifrado de extremo a extremo activo · tu clave privada nunca sale de este navegador.');
+
+  setStatus('Cifrado E2E activo · tu clave esta cifrada en el servidor y disponible en tus dispositivos.');
 }
 
 /* --------------------------------------------------------------------- *

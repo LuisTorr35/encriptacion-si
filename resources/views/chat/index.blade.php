@@ -18,7 +18,7 @@
             </div>
             <div class="flex items-center gap-3">
                 <span class="text-sm text-gray-600">{{ $me['name'] }}</span>
-                <form method="POST" action="{{ route('logout') }}">
+                <form method="POST" action="{{ route('logout') }}" onsubmit="try { sessionStorage.removeItem('e2e.pw'); } catch (e) {}">
                     @csrf
                     <button type="submit" class="rounded-md px-2.5 py-1 text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-800">
                         Salir
