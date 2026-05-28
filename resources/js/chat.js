@@ -36,10 +36,17 @@ const state = {
  *  Cliente HTTP (sesion Breeze: cookie + CSRF)
  * --------------------------------------------------------------------- */
 
+// Lee el token CSRF vigente desde la cookie XSRF-TOKEN (Laravel la renueva en
+// cada respuesta). Asi evitamos el "CSRF token mismatch" cuando la sesion rota.
+function csrfToken() {
+  const m = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : CFG.csrf;
+}
+
 async function api(method, url, body) {
   const headers = { Accept: 'application/json' };
   const opts = { method, headers, credentials: 'same-origin' };
-  if (method !== 'GET') headers['X-CSRF-TOKEN'] = CFG.csrf;
+  if (method !== 'GET') headers['X-XSRF-TOKEN'] = csrfToken();
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -47,6 +54,7 @@ async function api(method, url, body) {
   const res = await fetch(url, opts);
   if (!res.ok) {
     let msg = `${res.status} ${res.statusText}`;
+    if (res.status === 419) msg = 'Sesion expirada. Recarga la pagina (F5) e inicia sesion de nuevo.';
     try { const j = await res.json(); if (j.message) msg = j.message; } catch (_) { /* noop */ }
     throw new Error(msg);
   }
