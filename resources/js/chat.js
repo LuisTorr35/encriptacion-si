@@ -15,8 +15,9 @@ import CriptoCore from './crypto/cripto-core.js';
 window.CriptoCore = CriptoCore;
 
 const CFG = window.__CHAT__;
-const PRIV_LS = `e2e.priv.${CFG.me.id}`;
-const PUB_LS = `e2e.pub.${CFG.me.id}`;
+// v2 = claves en formato JWK (Web Crypto). Las v1 (hechas a mano) quedan obsoletas y se ignoran.
+const PRIV_LS = `e2e.priv2.${CFG.me.id}`;
+const PUB_LS = `e2e.pub2.${CFG.me.id}`;
 const PW_SS = 'e2e.pw';   // contrasena capturada en el login (solo en este navegador)
 const POLL_MS = 2500;
 
@@ -73,7 +74,7 @@ function storedPassword() {
 
 // Sube la clave publica y el blob cifrado de la privada (derivado de la contrasena).
 async function uploadKeys(pubJson, privJson, password) {
-  const wrapped = CriptoCore.wrapPrivateKey(privJson, password);
+  const wrapped = await CriptoCore.wrapPrivateKey(privJson, password);
   const wrappedJson = JSON.stringify(wrapped);
   await api('POST', '/api/keys', { public_key: pubJson, wrapped_private_key: wrappedJson });
   CFG.me.public_key = pubJson;
@@ -81,7 +82,7 @@ async function uploadKeys(pubJson, privJson, password) {
 }
 
 // Descifra el blob de la clave privada con la contrasena; reintenta si es incorrecta.
-function recoverPrivateKey(blob) {
+async function recoverPrivateKey(blob) {
   let pw = storedPassword();
   for (;;) {
     if (!pw) {
@@ -90,7 +91,7 @@ function recoverPrivateKey(blob) {
       try { sessionStorage.setItem(PW_SS, pw); } catch (_) { /* noop */ }
     }
     try {
-      return CriptoCore.unwrapPrivateKey(blob, pw);
+      return await CriptoCore.unwrapPrivateKey(blob, pw);
     } catch (_) {
       try { sessionStorage.removeItem(PW_SS); } catch (_) { /* noop */ }
       pw = null;
@@ -111,22 +112,22 @@ async function ensureKeys() {
       // Otro dispositivo ya genero la clave: recuperarla con la contrasena de login.
       setStatus('Recuperando tu clave de cifrado en este dispositivo…', true);
       await new Promise((r) => setTimeout(r, 30));
-      privJson = recoverPrivateKey(serverWrapped);
+      privJson = await recoverPrivateKey(serverWrapped);
       pubJson = CFG.me.public_key;
     } else {
       // Primera vez en cualquier dispositivo: generar el par RSA.
       setStatus('Generando tu par de claves RSA-2048 (solo la primera vez)…', true);
       await new Promise((r) => setTimeout(r, 30));
-      const kp = CriptoCore.generateRsaKeyPair(2048);
-      privJson = CriptoCore.exportPrivateKey(kp.privateKey);
-      pubJson = CriptoCore.exportPublicKey(kp.publicKey);
+      const kp = await CriptoCore.generateRsaKeyPair(2048);
+      privJson = await CriptoCore.exportPrivateKey(kp.privateKey);
+      pubJson = await CriptoCore.exportPublicKey(kp.publicKey);
     }
     localStorage.setItem(PRIV_LS, privJson);
     localStorage.setItem(PUB_LS, pubJson);
   }
 
-  state.myPriv = CriptoCore.importPrivateKey(privJson);
-  state.myPub = CriptoCore.importPublicKey(pubJson);
+  state.myPriv = await CriptoCore.importPrivateKey(privJson);
+  state.myPub = await CriptoCore.importPublicKey(pubJson);
   state.myPubJson = pubJson;
 
   // Sincronizar con el servidor lo que falte: la clave publica y/o el blob cifrado
@@ -207,12 +208,13 @@ async function openConversation(user) {
 
   try {
     const { conversation } = await api('POST', '/api/conversations', { user_id: user.id });
+    const otherPub = conversation.other.public_key
+      ? await CriptoCore.importPublicKey(conversation.other.public_key)
+      : null;
     state.active = {
       id: conversation.id,
       other: conversation.other,
-      otherPub: conversation.other.public_key
-        ? CriptoCore.importPublicKey(conversation.other.public_key)
-        : null,
+      otherPub,
     };
   } catch (e) {
     setStatus('Error al abrir la conversacion: ' + e.message, false, true);
@@ -261,7 +263,7 @@ async function sendMessage() {
 
   let envelope;
   try {
-    envelope = CriptoCore.encryptMessage(text, state.myPub, state.active.otherPub, state.myPriv);
+    envelope = await CriptoCore.encryptMessage(text, state.myPub, state.active.otherPub, state.myPriv);
   } catch (e) {
     setStatus('Error al cifrar: ' + e.message, false, true);
     input.value = text;
@@ -280,7 +282,7 @@ async function sendMessage() {
 
   try {
     const { message } = await api('POST', `/api/conversations/${state.active.id}/messages`, payload);
-    appendMessage(message);
+    await appendMessage(message);
     state.lastId = Math.max(state.lastId, message.id);
     scrollToBottom(true);
   } catch (e) {
@@ -305,13 +307,13 @@ async function fetchNew() {
 
   const nearBottom = isNearBottom();
   for (const m of data.messages) {
-    appendMessage(m);
+    await appendMessage(m);
     state.lastId = Math.max(state.lastId, m.id);
   }
   scrollToBottom(nearBottom);
 }
 
-function decryptMessage(m) {
+async function decryptMessage(m) {
   if (state.cache.has(m.id)) return state.cache.get(m.id);
   const isSender = m.mine;
   const senderPub = isSender ? state.myPub : state.active.otherPub;
@@ -326,7 +328,7 @@ function decryptMessage(m) {
   };
   let result;
   try {
-    result = CriptoCore.decryptMessage(env, state.myPriv, isSender, senderPub);
+    result = await CriptoCore.decryptMessage(env, state.myPriv, isSender, senderPub);
   } catch (e) {
     result = { plaintext: null, integrity: false, verified: null, error: e.message };
   }
@@ -338,8 +340,8 @@ function decryptMessage(m) {
  *  Render de mensajes
  * --------------------------------------------------------------------- */
 
-function appendMessage(m) {
-  const r = decryptMessage(m);
+async function appendMessage(m) {
+  const r = await decryptMessage(m);
   const thread = el('#thread');
 
   const row = document.createElement('div');

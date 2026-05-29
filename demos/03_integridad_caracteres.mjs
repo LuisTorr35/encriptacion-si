@@ -1,10 +1,9 @@
 /**
- * DEMO 3 — Integridad (anti-manipulacion) y soporte universal de caracteres.
+ * DEMO 3 — Integridad (anti-manipulación) y soporte universal de caracteres.
  *
- * Cubre las pruebas de la seccion 12 del plan:
- *   - Alterar 1 bit del ciphertext => el receptor RECHAZA (HMAC, Encrypt-then-MAC).
- *   - Round-trip de caracteres: emojis, chino, arabe, acentos, simbolos peligrosos.
- *   - Cadena muy larga (100 000 caracteres) cifrada/descifrada sin error.
+ *   - Alterar 1 byte del ciphertext => AES-256-GCM RECHAZA al descifrar (autenticación AEAD).
+ *   - Round-trip de caracteres: emojis, chino, árabe, acentos, símbolos peligrosos.
+ *   - Cadena muy larga cifrada/descifrada sin error.
  *
  * Ejecutar:  node demos/03_integridad_caracteres.mjs   (o:  npm run demo:integridad)
  */
@@ -14,24 +13,28 @@ import { banner, step, info, check, eq, trunc, summary, resetFails, isMain } fro
 
 export async function demo() {
   resetFails();
-  banner('DEMO 3 · Integridad y caracteres');
+  banner('DEMO 3 · Integridad y caracteres (Web Crypto)');
 
   step('Preparando claves de Ana y Beto…');
-  const ana = CC.generateRsaKeyPair(2048);
-  const beto = CC.generateRsaKeyPair(2048);
+  const ana = await CC.generateRsaKeyPair(2048);
+  const beto = await CC.generateRsaKeyPair(2048);
+  const anaPub = await CC.importPublicKey(await CC.exportPublicKey(ana.publicKey));
+  const anaPriv = await CC.importPrivateKey(await CC.exportPrivateKey(ana.privateKey));
+  const betoPub = await CC.importPublicKey(await CC.exportPublicKey(beto.publicKey));
+  const betoPriv = await CC.importPrivateKey(await CC.exportPrivateKey(beto.privateKey));
 
-  // --- 1) Anti-manipulacion ---
+  // --- 1) Anti-manipulación ---
   step('Integridad: el "servidor" altera 1 byte del ciphertext en la BD…');
-  const sobre = CC.encryptMessage('transferir 100 a la cuenta correcta', ana.publicKey, beto.publicKey, ana.privateKey);
-  const ctBytes = CC.base64ToBytes(sobre.ciphertext);
-  ctBytes[0] ^= 0x01; // flip de 1 bit
-  const sobreAlterado = { ...sobre, ciphertext: CC.bytesToBase64(ctBytes) };
-  const res = CC.decryptMessage(sobreAlterado, beto.privateKey, false, ana.publicKey);
-  check('mensaje alterado => RECHAZADO (HMAC no coincide)', res.integrity === false && res.plaintext === null);
+  const sobre = await CC.encryptMessage('transferir 100 a la cuenta correcta', anaPub, betoPub, anaPriv);
+  const ct = CC.base64ToBytes(sobre.ciphertext);
+  ct[0] ^= 0x01;
+  const alterado = { ...sobre, ciphertext: CC.bytesToBase64(ct) };
+  const res = await CC.decryptMessage(alterado, betoPriv, false, anaPub);
+  check('mensaje alterado => RECHAZADO (AES-GCM)', res.integrity === false && res.plaintext === null);
   info('motivo', res.error || '(sin error)');
 
-  const sobreOk = CC.decryptMessage(sobre, beto.privateKey, false, ana.publicKey);
-  check('mensaje intacto => ACEPTADO', sobreOk.integrity === true);
+  const ok = await CC.decryptMessage(sobre, betoPriv, false, anaPub);
+  check('mensaje intacto => ACEPTADO', ok.integrity === true);
 
   // --- 2) Caracteres variados (UTF-8) ---
   step('Round-trip de caracteres dificiles:');
@@ -44,16 +47,16 @@ export async function demo() {
     'Tab\ty saltos\nde\nlinea',
   ];
   for (const c of casos) {
-    const e = CC.encryptMessage(c, ana.publicKey, beto.publicKey, ana.privateKey);
-    const d = CC.decryptMessage(e, beto.privateKey, false, ana.publicKey);
+    const e = await CC.encryptMessage(c, anaPub, betoPub, anaPriv);
+    const d = await CC.decryptMessage(e, betoPriv, false, anaPub);
     eq('llega identico: ' + trunc(c, 32), d.plaintext, c);
   }
 
   // --- 3) Cadena muy larga ---
-  step('Cadena larga (100 000 caracteres):');
-  const larga = '🔒'.repeat(25000); // cada emoji = varios bytes UTF-8
-  const eL = CC.encryptMessage(larga, ana.publicKey, beto.publicKey, ana.privateKey);
-  const dL = CC.decryptMessage(eL, beto.privateKey, false, ana.publicKey);
+  step('Cadena larga (50 000 caracteres):');
+  const larga = '🔒'.repeat(25000);
+  const eL = await CC.encryptMessage(larga, anaPub, betoPub, anaPriv);
+  const dL = await CC.decryptMessage(eL, betoPriv, false, anaPub);
   check(`cadena larga round-trip (${larga.length} chars, ${CC.base64ToBytes(eL.ciphertext).length} bytes cifrados)`,
         dL.plaintext === larga);
 
