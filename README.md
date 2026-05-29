@@ -1,9 +1,9 @@
 # Chat E2E — Mensajería con cifrado de extremo a extremo
 
 Aplicación web de mensajería 1-a-1 estilo Telegram con **cifrado de extremo a extremo (E2E)**
-usando un criptosistema híbrido **KEM/DEM (RSA + AES-256 + HMAC-SHA256)** implementado
-**desde cero en JavaScript**. Las conversaciones se guardan **cifradas** en MySQL: el servidor
-nunca ve el texto plano ni las claves privadas.
+usando un criptosistema híbrido **KEM/DEM (RSA-OAEP + AES-256-GCM)** sobre la **Web Crypto API**
+(criptografía nativa y auditada del navegador/Node). Las conversaciones se guardan **cifradas** en
+MySQL: el servidor nunca ve el texto plano ni las claves privadas.
 
 > Proyecto académico/demostrativo de Seguridad Informática.
 
@@ -18,7 +18,7 @@ Navegador A  ──(sobre cifrado)──►  Laravel + MySQL  ──(sobre cifra
 
 - La **clave privada RSA** se genera en el navegador y vive en `localStorage`. **Nunca** sale del cliente en claro.
 - Para **multi-dispositivo**, la clave privada también se guarda en el servidor **cifrada** con una
-  clave derivada de tu contraseña (PBKDF2-HMAC-SHA256 → AES-256-CTR + HMAC). El servidor solo ve el
+  clave derivada de tu contraseña (PBKDF2-HMAC-SHA256 → AES-256-GCM). El servidor solo ve el
   blob cifrado: jamás la clave en claro ni la contraseña. Al iniciar sesión en otro dispositivo, la
   clave se **recupera y descifra localmente** con tu contraseña.
 - La **clave pública RSA** sí se sube al servidor, para que otros puedan cifrarte mensajes.
@@ -29,23 +29,21 @@ Navegador A  ──(sobre cifrado)──►  Laravel + MySQL  ──(sobre cifra
 ### Algoritmo de cada mensaje (KEM/DEM)
 
 ```
-1. K               <- 32 bytes aleatorios                 (clave de sesión)
-2. k_enc, k_mac    <- HKDF-SHA256(K)                       (subclaves)
-3. C               <- AES-256-CTR(k_enc, UTF8(mensaje))
-4. T               <- HMAC-SHA256(k_mac, nonce || C)       (Encrypt-then-MAC)
-5. encK_A          <- RSA-OAEP(pub_A, K)                   (envuelta para el emisor)
-6. encK_B          <- RSA-OAEP(pub_B, K)                   (envuelta para el receptor)
-7. firma           <- RSA-PSS(priv_emisor, nonce||C||T)    (autenticidad de origen)
+1. K               <- clave de sesión AES-256 aleatoria
+2. C, tag          <- AES-256-GCM(K, iv, UTF8(mensaje))    (cifra + autentica en uno)
+3. encK_A          <- RSA-OAEP(pub_A, K)                   (envuelta para el emisor)
+4. encK_B          <- RSA-OAEP(pub_B, K)                   (envuelta para el receptor)
+5. firma           <- RSA-PSS(priv_emisor, iv||C||tag)     (autenticidad de origen)
 ```
 
-Para descifrar, el usuario desencapsula `K` con su clave privada, deriva las subclaves,
-**verifica el HMAC** (si falla, rechaza el mensaje) y descifra `C`.
+Para descifrar, el usuario desencapsula `K` con su clave privada y descifra con **AES-256-GCM**,
+que **verifica la integridad** automáticamente (si el mensaje fue alterado, falla y se rechaza).
 
-Todas las primitivas están implementadas a mano en
+Todas las operaciones usan la **Web Crypto API** (`crypto.subtle`) en
 [`resources/js/crypto/cripto-core.js`](resources/js/crypto/cripto-core.js):
-SHA-256, HMAC-SHA256, HKDF, AES-256-CTR, RSA (BigInt, Miller-Rabin, exponenciación modular),
-RSA-OAEP, RSA-PSS, UTF-8 y Base64. La única dependencia del entorno es
-`crypto.getRandomValues` (generador aleatorio del navegador).
+RSA-OAEP (SHA-256), AES-256-GCM, RSA-PSS y PBKDF2-HMAC-SHA256. Es criptografía nativa, auditada
+por los fabricantes del navegador (estándar W3C); no se incluye ninguna librería de cifrado de
+terceros. El `tag` de autenticación de AES-GCM se guarda en el campo `mac` del sobre.
 
 ---
 
@@ -141,12 +139,12 @@ seguir tu historial cifrado):
 - **Conocimiento cero:** abre la tabla `messages` en phpMyAdmin → solo verás Base64 cifrado,
   ningún texto legible.
 - **Integridad:** altera a mano un `ciphertext` en la BD → el receptor mostrará el mensaje como
-  no verificado (el HMAC no coincide).
+  no verificado (la autenticación AES-GCM falla).
 - **Caracteres y longitud:** envía emojis, chino, árabe, acentos y símbolos `<>&"'` y textos muy
   largos → deben llegar idénticos.
 - **Round-trip en consola del navegador:** en `/chat`, abre la consola y ejecuta
-  `CriptoCore.selfTest()` → debe devolver `{ ..., pass: true }`. Genera dos pares de claves,
-  cifra/descifra, verifica la firma y comprueba que un mensaje alterado se rechaza.
+  `await CriptoCore.selfTest()` → debe devolver `{ ..., pass: true }`. Genera dos pares de claves,
+  cifra/descifra, verifica la firma y comprueba que un mensaje alterado se rechaza. (Es asíncrono.)
 - **Demos de consola (Node, sin navegador):** `npm run demo` ejecuta una suite que valida las
   primitivas contra vectores oficiales (FIPS/RFC/NIST) y demuestra el flujo E2E, la integridad,
   los caracteres y el multi-dispositivo. Ver [`demos/README.md`](demos/README.md).
@@ -161,7 +159,7 @@ app/Http/Controllers/       ChatController
 app/Models/                 User, Conversation, Message
 database/migrations/        public_key, conversations, conversation_user, messages
 database/seeders/           TestUsersSeeder (Ana y Beto)
-resources/js/crypto/        cripto-core.js   (núcleo KEM/DEM, sin librerías de cifrado)
+resources/js/crypto/        cripto-core.js   (núcleo KEM/DEM sobre Web Crypto API)
 resources/js/               chat.js          (claves, cifrar/descifrar, polling, render)
 resources/views/chat/       index.blade.php  (UI estilo Telegram)
 routes/web.php              rutas web + API (auth de sesión Breeze, CSRF)
@@ -185,8 +183,10 @@ El servidor valida la pertenencia a la conversación, pero **jamás descifra** e
 
 ## 8. Notas de alcance
 
-Implementación con fines **educativos**. En producción deberían usarse bibliotecas auditadas
-(Web Crypto API), relleno OAEP/firmas PSS verificados y claves RSA ≥ 3072 bits.
+Proyecto **académico**, pero la criptografía se apoya en la **Web Crypto API** (primitivas nativas
+y auditadas), no en una implementación propia. Mejoras posibles para un entorno real: claves
+RSA ≥ 3072 bits (o migrar a curvas X25519/Ed25519), *forward secrecy* (estilo Signal), verificación
+de identidad entre usuarios (huellas) y Argon2id en lugar de PBKDF2.
 
 La portabilidad **multi-dispositivo** ya está implementada: la clave privada se envuelve con una
 clave derivada de la contraseña (PBKDF2-HMAC-SHA256, 150 000 iteraciones) y se guarda cifrada en el

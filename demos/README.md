@@ -4,7 +4,7 @@ Programas en **Node.js** (sin navegador) que demuestran, paso a paso, todo el
 funcionamiento del núcleo criptográfico (`resources/js/crypto/cripto-core.js`),
 incluido el **multi-dispositivo**. Útiles para presentar/defender el proyecto.
 
-> Requisito: **Node.js ≥ 18** (usa la Web Crypto global para los bytes aleatorios).
+> Requisito: **Node.js ≥ 18** (usa la **Web Crypto API** global, igual que el navegador).
 > No necesitan ni base de datos ni el servidor Laravel.
 
 ## Cómo ejecutar
@@ -29,10 +29,10 @@ distinto de cero si algo falla (sirve para CI).
 
 | Demo | Archivo | Qué prueba |
 |---|---|---|
-| 1 | `01_primitivas.mjs` | SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 4231), HKDF (RFC 5869), AES-256-CTR (NIST SP 800-38A), PBKDF2 (RFC 7914) — todo contra los **vectores oficiales**. |
-| 2 | `02_mensaje_e2e.mjs` | Flujo completo KEM/DEM: Ana cifra para `{Ana, Beto}`, firma (RSA-PSS); el sobre es ilegible; Beto y Ana descifran su copia; un tercero no puede. |
-| 3 | `03_integridad_caracteres.mjs` | Alterar 1 bit del ciphertext ⇒ se rechaza (HMAC, Encrypt-then-MAC); round-trip de emojis/chino/árabe/símbolos; cadena de 100 000 caracteres. |
-| 4 | `04_multidispositivo.mjs` | La clave privada se envuelve con la contraseña (PBKDF2→AES+HMAC); el servidor solo ve el blob; otro dispositivo la recupera idéntica; contraseña incorrecta rechazada; la clave recuperada **sí descifra**. |
+| 1 | `01_primitivas.mjs` | SHA-256 (FIPS 180-4), HMAC-SHA256 (RFC 4231), HKDF (RFC 5869), PBKDF2 (RFC 7914) y AES-256-GCM (vector de McGrew & Viega) — primitivas de la Web Crypto API contra los **vectores oficiales**. |
+| 2 | `02_mensaje_e2e.mjs` | Flujo completo KEM/DEM: Ana cifra para `{Ana, Beto}` con AES-GCM, firma (RSA-PSS); el sobre es ilegible; Beto y Ana descifran su copia; un tercero no puede. |
+| 3 | `03_integridad_caracteres.mjs` | Alterar 1 bit del ciphertext ⇒ se rechaza (autenticación AES-GCM); round-trip de emojis/chino/árabe/símbolos; cadena larga. |
+| 4 | `04_multidispositivo.mjs` | La clave privada se envuelve con la contraseña (PBKDF2 → AES-256-GCM); el servidor solo ve el blob; otro dispositivo la recupera idéntica; contraseña incorrecta rechazada; la clave recuperada **sí descifra**. |
 
 ## Relación con la app real
 
