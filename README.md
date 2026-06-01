@@ -54,7 +54,7 @@ terceros. El `tag` de autenticación de AES-GCM se guarda en el campo `mac` del 
 | Backend | Laravel 11 (PHP 8.2+) |
 | Auth + UI base | Laravel Breeze (Blade + Tailwind) |
 | Base de datos | MySQL / MariaDB (XAMPP) |
-| Criptografía | Núcleo JS propio (KEM/DEM), **del lado del cliente** |
+| Criptografía | KEM/DEM sobre la **Web Crypto API**, **del lado del cliente** |
 | Tiempo real | Polling cada 2.5 s vía `fetch` |
 
 ---
@@ -66,7 +66,7 @@ terceros. El `tag` de autenticación de AES-GCM se guarda en el campo `mac` del 
   (el PHP que trae XAMPP ya las incluye).
 - **Composer**.
 - **Node.js ≥ 18** y **npm** (para compilar los assets).
-- Navegador moderno (usa `crypto.getRandomValues`, `BigInt`, `TextEncoder`).
+- Navegador moderno con **Web Crypto API** (`crypto.subtle`, `crypto.getRandomValues`, `TextEncoder`).
 
 ---
 
@@ -183,8 +183,8 @@ El servidor valida la pertenencia a la conversación, pero **jamás descifra** e
 
 ## 8. Notas de alcance
 
-Proyecto **académico**, pero la criptografía se apoya en la **Web Crypto API** (primitivas nativas
-y auditadas), no en una implementación propia. Mejoras posibles para un entorno real: claves
+Proyecto **académico**, diseñado desde el inicio sobre la **Web Crypto API** (primitivas nativas
+y auditadas del navegador/Node). Mejoras posibles para un entorno real: claves
 RSA ≥ 3072 bits (o migrar a curvas X25519/Ed25519), *forward secrecy* (estilo Signal), verificación
 de identidad entre usuarios (huellas) y Argon2id en lugar de PBKDF2.
 
