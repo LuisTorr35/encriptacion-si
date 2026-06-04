@@ -18,7 +18,8 @@ const CFG = window.__CHAT__;
 // v2 = claves en formato JWK (Web Crypto). Las v1 (hechas a mano) quedan obsoletas y se ignoran.
 const PRIV_LS = `e2e.priv2.${CFG.me.id}`;
 const PUB_LS = `e2e.pub2.${CFG.me.id}`;
-const PW_SS = 'e2e.pw';   // contrasena capturada en el login (solo en este navegador)
+const PW_SS = `e2e.pw.${CFG.me.id}`;   // contrasena por-usuario (solo en este navegador)
+const PW_SS_RAW = 'e2e.pw';            // captura generica del login (aun sin saber el usuario)
 const POLL_MS = 2500;
 
 const el = (sel) => document.querySelector(sel);
@@ -68,8 +69,18 @@ async function api(method, url, body) {
  * --------------------------------------------------------------------- */
 
 // Contrasena capturada en el formulario de login/registro (sessionStorage).
+// El login la guarda en una clave generica (no sabe aun que usuario es); aqui la
+// migramos a una clave por-usuario y borramos la generica, para que la contrasena
+// de un usuario NUNCA contamine a otro en el mismo navegador.
 function storedPassword() {
-  try { return sessionStorage.getItem(PW_SS); } catch (_) { return null; }
+  try {
+    const raw = sessionStorage.getItem(PW_SS_RAW);
+    if (raw) {
+      sessionStorage.setItem(PW_SS, raw);
+      sessionStorage.removeItem(PW_SS_RAW);
+    }
+    return sessionStorage.getItem(PW_SS);
+  } catch (_) { return null; }
 }
 
 // Sube la clave publica y el blob cifrado de la privada (derivado de la contrasena).
@@ -193,12 +204,11 @@ function renderContacts() {
   }
 }
 
-/* --------------------------------------------------------------------- *
- *  Abrir conversacion
- * --------------------------------------------------------------------- */
-
+ //Abrir conversacion
+  
 async function openConversation(user) {
   stopPolling();
+  el('#layout').dataset.view = 'chat';   // en movil: muestra el hilo, oculta contactos
   el('#empty-state').classList.add('hidden');
   el('#chat-panel').classList.remove('hidden');
   el('#chat-panel').classList.add('flex');
@@ -410,7 +420,10 @@ function scrollToBottom(force) {
 function setStatus(text, busy = false, error = false) {
   const s = el('#status');
   s.textContent = text;
+  // Los errores se ven siempre (tambien en movil); el estado normal se oculta
+  // en pantallas pequenas para no saturar la cabecera.
   s.className =
+    (error ? 'truncate ' : 'hidden truncate sm:inline ') +
     'text-xs ' +
     (error ? 'text-red-600' : busy ? 'text-amber-600' : 'text-emerald-600');
 }
@@ -450,6 +463,11 @@ function wireComposer() {
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  });
+
+  // Boton "atras" (solo movil): vuelve a la lista de contactos.
+  el('#thread-back').addEventListener('click', () => {
+    el('#layout').dataset.view = 'contacts';
   });
 }
 

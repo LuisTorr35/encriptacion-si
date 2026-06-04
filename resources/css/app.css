@@ -1,3 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Alto del contenedor principal: 100dvh en moviles descuenta la barra del
+   navegador (evita que el composer quede tapado); 100vh como respaldo. */
+.app-shell {
+    height: 100vh;
+    height: 100dvh;
+}
+
+/* En moviles se muestra UN panel a la vez. Segun el estado de #layout
+   (data-view) se oculta la lista de contactos o el hilo de conversacion.
+   En pantallas md+ ambos paneles conviven y estas reglas no aplican. */
+@media (max-width: 767px) {
+    #layout[data-view="contacts"] #main-panel {
+        display: none;
+    }
+    #layout[data-view="chat"] #sidebar {
+        display: none;
+    }
+}
